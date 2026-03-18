@@ -1,0 +1,39 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Local DB / secrets
+*.db
+*.sqlite
+.env
+.env.*
+
+# Exports / generated files
+exports/
+jobtracker/exports/
+*.pdf
+
+# Backups / zips / temp patch junk
+*.bak
+*.repair_*
+*.fixlang_*
+*.spacingfix_*
+*.fullrewrite_*
+*.autopdf_*
+*.notesfix_*
+*.psfix_*
+jobtracker_backup_*/
+*.zip
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

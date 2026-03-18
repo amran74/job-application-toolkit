@@ -1,0 +1,296 @@
+﻿import os
+import json
+from datetime import date
+import streamlit as st
+from openai import OpenAI
+
+from lib.db import (
+    get_conn, init_db, fetch_jobs, get_job,
+    save_cv_version, update_cv_paths, get_setting
+)
+from lib.pdf_export import export_cv_pdf, export_cover_letter_pdf
+from lib.ats import coverage
+
+st.set_page_config(page_title="AI CV Generator", layout="wide")
+st.title("AI CV Generator (v2: stable + ATS)")
+st.caption("Pick a job → JD auto-loads → baseline auto-loads → generate + save version → ATS sanity check → export PDFs.")
+
+api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+client = OpenAI(api_key=api_key) if api_key else None
+if not api_key:
+    st.warning("Set OPENAI_API_KEY then restart PowerShell. Example:\nsetx OPENAI_API_KEY \"YOUR_KEY\"")
+
+def clamp_text(s: str, max_chars: int) -> str:
+    s = (s or "").strip()
+    return s[:max_chars]
+
+CV_SCHEMA = {
+    "name": "cv_bundle",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "cv": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "headline": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "experience": {"type": "string"},
+                    "skills": {"type": "string"},
+                    "education": {"type": "string"},
+                    "projects": {"type": "string"}
+                },
+                "required": ["headline", "summary", "experience", "skills", "education", "projects"]
+            },
+            "cover_letter": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"}
+                },
+                "required": ["subject", "body"]
+            },
+            "notes": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "keywords_used": {"type": "array", "items": {"type": "string"}},
+                    "changes_made": {"type": "array", "items": {"type": "string"}},
+                    "warnings": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["keywords_used", "changes_made", "warnings"]
+            }
+        },
+        "required": ["cv", "cover_letter", "notes"]
+    }
+}
+
+conn = get_conn()
+init_db(conn)
+df = fetch_jobs(conn)
+
+if df.empty:
+    st.info("No jobs in DB. Add a job first.")
+    st.stop()
+
+baseline_saved = get_setting(conn, "baseline_cv_text")
+
+
+profile = {
+    "name": get_setting(conn, "profile_name") or "Amran",
+    "headline": get_setting(conn, "profile_headline") or "",
+    "email": get_setting(conn, "profile_email") or "",
+    "phone": get_setting(conn, "profile_phone") or "",
+    "github_url": get_setting(conn, "profile_github_url") or "",
+    "linkedin_url": get_setting(conn, "profile_linkedin_url") or "",
+    "website_url": get_setting(conn, "profile_website_url") or "",
+    "location": get_setting(conn, "profile_location") or "",
+}
+choices = [f'#{r.id} | {r.company} - {r.role}' for r in df.itertuples(index=False)]
+pick = st.selectbox("Select job", choices)
+job_id = int(pick.split("|")[0].strip().replace("#",""))
+job = get_job(conn, job_id) or {}
+
+st.subheader("Your details (PDF header)")
+c1, c2, c3 = st.columns(3)
+with c1:
+    name = st.text_input("Name", value=profile["name"])
+    headline_override = st.text_input("Headline override (optional)", value=profile["headline"])
+with c2:
+    email = st.text_input("Email", value=profile["email"])
+    phone = st.text_input("Phone", value=profile["phone"])
+with c3:
+    github = st.text_input("GitHub (username or URL)", value=profile["github_url"])
+    linkedin = st.text_input("LinkedIn (handle or URL)", value=profile["linkedin_url"])
+    location = st.text_input("Location", value=(job.get("location") or profile["location"] or ""))
+
+website = st.text_input("Website (optional)", value=profile["website_url"])
+contacts = {
+    "email": email.strip(),
+    "phone": phone.strip(),
+    "github_url": github.strip(),
+    "linkedin_url": linkedin.strip(),
+    "website_url": website.strip(),
+    "location": location.strip(),
+}
+
+st.subheader("Inputs")
+left, right = st.columns([1, 1])
+
+with left:
+    company = st.text_input("Company", value=(job.get("company") or ""))
+    role = st.text_input("Role title", value=(job.get("role") or ""))
+
+    baseline_text = st.text_area(
+        "Baseline CV text (auto-loaded if saved in Baseline CV page)",
+        height=240,
+        value=baseline_saved or ""
+    )
+
+with right:
+    jd_text = st.text_area(
+        "Job description (auto-loaded from job record)",
+        height=280,
+        value=(job.get("jd_text") or "")
+    )
+
+archetype = st.selectbox("Archetype", ["Data/BI", "Marketing Analyst", "Ops/Management", "Fraud/Risk", "Custom"])
+tone = st.selectbox("Tone", ["Concise", "Impact-driven", "Technical", "Leadership"])
+length = st.selectbox("Length", ["1 page", "2 pages"])
+include_cover = st.checkbox("Generate cover letter", value=True)
+
+generate = st.button("Generate + Save Version", type="primary", disabled=(not api_key))
+
+if generate:
+    if not baseline_text.strip():
+        st.error("Baseline CV text is empty. Go to Baseline CV page and save it once, or paste it here.")
+        st.stop()
+    if not jd_text.strip():
+        st.error("Job description is empty. Add/paste JD into the job record.")
+        st.stop()
+
+    baseline_text2 = clamp_text(baseline_text, 12000)
+    jd_text2 = clamp_text(jd_text, 12000)
+
+    system_rules = f"""
+You are a CV tailoring engine.
+
+Hard rules:
+- Do NOT invent companies, degrees, dates, employers, achievements, tools, certifications, or responsibilities not present in the baseline CV.
+- You may rewrite, reorder, compress, and emphasize. You may remove irrelevant items.
+- If baseline lacks info required by the job description, do NOT fabricate; add a warning instead.
+
+Output MUST match the provided JSON schema exactly.
+Language: English.
+Tone: {tone}.
+Archetype: {archetype}.
+Preferred length: {length}.
+Formatting:
+- Experience and Projects should be bullets (start lines with •).
+- Skills should be comma-separated or bullets.
+"""
+
+    user_input = f"""
+BASELINE_CV:
+{baseline_text2}
+
+JOB_DESCRIPTION:
+{jd_text2}
+
+CONTEXT:
+Company={company}
+RoleTitle={role}
+
+If cover letter not requested, still fill cover_letter with empty strings.
+"""
+
+    try:
+        resp = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": "You are a professional resume writer."},
+            {"role": "user", "content": user_input}
+        ],
+        temperature=0.4
+    )
+        data = json.loads(resp.choices[0].message.content)
+    except Exception as e:
+        st.error(f"Generation failed: {e}")
+        st.stop()
+
+    cv = data["cv"]
+    cover = data["cover_letter"]
+    notes = data["notes"]
+
+    version_id = save_cv_version(
+        conn=conn,
+        job_id=job_id,
+        model="gpt-4o-mini",
+        archetype=archetype,
+        tone=tone,
+        length=length,
+        include_cover=include_cover,
+        cv_json=json.dumps(cv, ensure_ascii=False),
+        cover_json=json.dumps(cover, ensure_ascii=False),
+        notes_json=json.dumps(notes, ensure_ascii=False),
+        cv_pdf_path=None,
+        cover_pdf_path=None
+    )
+
+    st.success(f"Saved version #{version_id} for job #{job_id}.")
+
+    st.subheader("Preview")
+    st.markdown("**Headline**"); st.write(cv["headline"])
+    st.markdown("**Summary**"); st.write(cv["summary"])
+    st.markdown("**Experience**"); st.write(cv["experience"])
+    st.markdown("**Skills**"); st.write(cv["skills"])
+    st.markdown("**Education**"); st.write(cv["education"])
+    st.markdown("**Projects**"); st.write(cv["projects"])
+
+    if include_cover:
+        st.markdown("**Cover letter subject**"); st.write(cover["subject"])
+        st.markdown("**Cover letter**"); st.write(cover["body"])
+
+    st.divider()
+    st.subheader("ATS keyword coverage (quick sanity check)")
+    try:
+        cv_text_for_ats = "\n".join([cv.get("summary",""), cv.get("experience",""), cv.get("skills",""), cv.get("projects","")])
+        score, hit, miss, keys = coverage(jd_text, cv_text_for_ats, k=25)
+        st.metric("Coverage", f"{score:.1f}%")
+        st.write("Matched keywords:", ", ".join(hit) or "-")
+        st.write("Missing keywords:", ", ".join(miss) or "-")
+    except Exception:
+        st.write("ATS panel failed to compute.")
+
+    st.divider()
+    st.subheader("Export PDFs (stored under exports/job_<id>/...)")
+
+    out_dir = os.path.join("jobtracker", "exports", f"job_{job_id}")
+    os.makedirs(out_dir, exist_ok=True)
+
+    today = date.today().isoformat()
+    safe_company = "".join([c for c in (company or "company") if c.isalnum() or c in ("_", "-")])[:24]
+    safe_role = "".join([c for c in (role or "role") if c.isalnum() or c in ("_", "-")])[:24]
+
+    cv_pdf = os.path.join(out_dir, f"cv_v{version_id}_{safe_company}_{safe_role}_{today}.pdf")
+    cl_pdf = os.path.join(out_dir, f"cover_v{version_id}_{safe_company}_{safe_role}_{today}.pdf")
+
+    headline = headline_override.strip() or cv["headline"]
+
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("Build + Save CV PDF"):
+            export_cv_pdf(
+                path=cv_pdf,
+                name=name,
+                headline=headline,
+                contacts=contacts,
+                summary=cv["summary"],
+                sections=[
+                    ("Experience", cv["experience"], "bullets"),
+                    ("Projects", cv["projects"], "bullets"),
+                    ("Skills", cv["skills"], "text"),
+                    ("Education", cv["education"], "text"),
+                ],
+            )
+            update_cv_paths(conn, version_id, cv_pdf_path=cv_pdf, cover_pdf_path=None)
+            with open(cv_pdf, "rb") as f:
+                st.download_button("Download CV PDF", f, file_name=os.path.basename(cv_pdf), mime="application/pdf")
+            st.success("CV PDF saved + linked to this version.")
+    with colB:
+        if include_cover and st.button("Build + Save Cover Letter PDF"):
+            export_cover_letter_pdf(
+                path=cl_pdf,
+                name=name,
+                contacts=contacts,
+                letter_text=cover["body"],
+                headline=headline,
+                date_str=str(date.today()),
+            )
+            update_cv_paths(conn, version_id, cv_pdf_path=None, cover_pdf_path=cl_pdf)
+            with open(cl_pdf, "rb") as f:
+                st.download_button("Download Cover Letter PDF", f, file_name=os.path.basename(cl_pdf), mime="application/pdf")
+            st.success("Cover letter PDF saved + linked to this version.")

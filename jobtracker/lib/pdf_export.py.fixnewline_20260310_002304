@@ -1,0 +1,319 @@
+﻿from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from textwrap import wrap
+import re
+
+LINK_BLUE = colors.HexColor("#0563C1")
+SECTION_SPACING = 8
+LINE_SPACING = 12
+
+def _safe(s):
+    return (s or "").strip()
+
+def _hr(c, x1, x2, y):
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.6)
+    c.line(x1, y, x2, y)
+
+def _draw_text(c, x, y, text, font="Helvetica", size=10, color=colors.black):
+    c.setFont(font, size)
+    c.setFillColor(color)
+    c.drawString(x, y, text)
+
+def _draw_link(c, x, y, label, url, font="Helvetica", size=9.6):
+    label = _safe(label)
+    url = _safe(url)
+    if not label or not url:
+        return 0
+
+    c.setFont(font, size)
+    c.setFillColor(LINK_BLUE)
+    c.drawString(x, y, label)
+    w = c.stringWidth(label, font, size)
+
+    c.setStrokeColor(LINK_BLUE)
+    c.setLineWidth(0.6)
+    c.line(x, y-1.5, x+w, y-1.5)
+
+    c.linkURL(url, (x, y-2, x+w, y+10), relative=0)
+
+    c.setFillColor(colors.black)
+    c.setStrokeColor(colors.black)
+    return w
+
+def _draw_wrapped(c, x, y, text, max_chars=105, line_h=12, font="Helvetica", size=10):
+    c.setFont(font, size)
+    c.setFillColor(colors.black)
+    for line in wrap((_safe(text)), max_chars):
+        c.drawString(x, y, line)
+        y -= line_h
+    return y
+
+def _parse_inline_links(s: str):
+    s = (s or "").strip()
+    if not s:
+        return [("text","",None)]
+
+    parts = []
+    i = 0
+    pattern = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+    for m in pattern.finditer(s):
+        if m.start() > i:
+            parts.append(("text", s[i:m.start()], None))
+        parts.append(("link", m.group(1), m.group(2)))
+        i = m.end()
+    if i < len(s):
+        parts.append(("text", s[i:], None))
+    return parts if parts else [("text", s, None)]
+
+def _draw_bullets_rich(c, x, y, text, max_chars=100, line_h=12, font="Helvetica", size=10):
+    c.setFont(font, size)
+    c.setFillColor(colors.black)
+
+    t = _safe(text)
+    if not t:
+        return y
+
+    lines = [ln.rstrip() for ln in t.splitlines()]
+    bullet_indent = 10
+
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            y -= line_h * 0.5
+            continue
+
+        if s.startswith(("•","-","*")):
+            s = s[1:].strip()
+            c.drawString(x, y, u"\u2022")
+            base_x = x + bullet_indent
+        else:
+            base_x = x + bullet_indent
+
+        wrapped = wrap(s, max_chars)
+        for wline in wrapped:
+            segs = _parse_inline_links(wline)
+            cx = base_x
+            for kind, seg_text, seg_url in segs:
+                if kind == "link" and seg_url:
+                    w = _draw_link(c, cx, y, seg_text, seg_url, font, size)
+                    cx += w
+                else:
+                    c.drawString(cx, y, seg_text)
+                    cx += c.stringWidth(seg_text, font, size)
+            y -= line_h
+
+    return y
+
+def _normalize_url(u: str):
+    u = _safe(u)
+    if not u:
+        return ""
+    if u.startswith("http://") or u.startswith("https://"):
+        return u
+    return "https://" + u
+
+def export_cv_pdf(path, name, headline, contacts, sections, summary=""):
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    left = 2.0 * cm
+    right = w - 2.0 * cm
+    y = h - 2.0 * cm
+
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(left, y, _safe(name))
+    y -= 16
+
+    c.setFont("Helvetica", 11)
+    c.drawString(left, y, _safe(headline))
+    y -= 12
+
+    email = _safe(contacts.get("email"))
+    phone = _safe(contacts.get("phone"))
+    github_url = _normalize_url(contacts.get("github_url"))
+    linkedin_url = _normalize_url(contacts.get("linkedin_url"))
+    website_url = _normalize_url(contacts.get("website_url"))
+    location = _safe(contacts.get("location"))
+
+    x = left
+
+    def plain(label, val):
+        nonlocal x, y
+        if val is None or str(val).strip() == "":
+            return
+        t = f"{label}: {val}"
+        c.setFont("Helvetica", 9.6)
+        c.setFillColor(colors.black)
+        c.drawString(x, y, t)
+        x += c.stringWidth(t, "Helvetica", 9.6) + 14
+
+    def link_only(label, url):
+        nonlocal x, y
+        if not url:
+            return
+        w = _draw_link(c, x, y, label, url, "Helvetica", 9.6)
+        x += w + 14
+    # --- Header line 1: Email (clickable), Phone, Location ---
+    x = left
+
+    if email:
+        prefix = "Email: "
+        c.setFont("Helvetica", 9.6)
+        c.setFillColor(colors.black)
+        c.drawString(x, y, prefix)
+        x += c.stringWidth(prefix, "Helvetica", 9.6)
+        w = _draw_link(c, x, y, email, f"mailto:{email}", "Helvetica", 9.6)
+        x += w + 14
+
+    plain("Phone", phone)
+    plain("Location", location)
+
+    # --- Header line 2: GitHub + LinkedIn (clickable words only) ---
+    y -= 10
+    x = left
+    if github_url:
+        link_only("GitHub", github_url)
+    if linkedin_url:
+        link_only("LinkedIn", linkedin_url)
+
+        link_only("Website", website_url)
+    y -= 8
+    _hr(c, left, right, y)
+
+    y -= 14
+
+    if summary:
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(left, y, "Summary")
+        y -= 12
+        y = _draw_wrapped(c, left, y, summary)
+        y -= 8
+
+    for title, body, kind in sections:
+        # --- Layout polish: spacing + formatting ---
+        body = body or ""
+
+        # Skills: commas -> bullets on one line
+        if kind == "text" and title == "Skills":
+            body = body.replace(" ,", ",").replace(", ", " • ").replace(",", " • ")
+
+        # Languages: convert single-line dash-separated to separate lines
+        if kind == "text" and title == "Languages":
+            b = (body or "").strip()
+            if "
+" not in b and " - " in b:
+                parts = [x.strip(" -") for x in b.split(" - ") if x.strip(" -")]
+                body = "
+".join(f"- {x}" for x in parts)
+            body = body.replace(" (", ", ").replace(")", "")
+
+        if title != sections[0][0]:
+            y -= 6
+
+        if y < 3 * cm:
+            c.showPage()
+            y = h - 2 * cm
+
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(left, y, title)
+        y -= 10
+
+        if kind in ("bullets", "bullets_links"):
+            y = _draw_bullets_rich(c, left, y, body)
+        else:
+            y = _draw_wrapped(c, left, y, body)
+
+        y -= 10
+
+    c.save()
+
+
+def export_cover_letter_pdf(path, name, contacts, letter_text, headline="", date_str=""):
+    """
+    Minimal cover letter PDF generator.
+    Keeps same style system as CV exporter, but simpler.
+    contacts keys supported: email, phone, location, github_url, linkedin_url, website_url
+    """
+    c = canvas.Canvas(path, pagesize=A4)
+    w, h = A4
+    left = 2.0 * cm
+    right = w - 2.0 * cm
+    y = h - 2.0 * cm
+
+    # Header
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(left, y, _safe(name))
+    y -= 16
+
+    if headline:
+        c.setFont("Helvetica", 11)
+        c.drawString(left, y, _safe(headline))
+        y -= 12
+
+    email = _safe((contacts or {}).get("email"))
+    phone = _safe((contacts or {}).get("phone"))
+    github_url = _normalize_url((contacts or {}).get("github_url"))
+    linkedin_url = _normalize_url((contacts or {}).get("linkedin_url"))
+    website_url = _normalize_url((contacts or {}).get("website_url"))
+    location = _safe((contacts or {}).get("location"))
+
+    x = left
+
+    def plain(label, val):
+        nonlocal x, y
+        if not val:
+            return
+        txt2 = f"{label}: {val}"
+        c.setFont("Helvetica", 9.6)
+        c.drawString(x, y, txt2)
+        x += c.stringWidth(txt2, "Helvetica", 9.6) + 14
+
+    def link_only(label, url):
+        nonlocal x, y
+        if not url:
+            return
+        wlink = _draw_link(c, x, y, label, url, "Helvetica", 9.6)
+        x += wlink + 14
+
+    # Contact line 1
+    if email:
+        prefix = "Email: "
+        c.setFont("Helvetica", 9.6)
+        c.drawString(x, y, prefix)
+        x += c.stringWidth(prefix, "Helvetica", 9.6)
+        wmail = _draw_link(c, x, y, email, f"mailto:{email}", "Helvetica", 9.6)
+        x += wmail + 14
+
+    plain("Phone", phone)
+    plain("Location", location)
+
+    # Contact line 2 (links only)
+    if github_url or linkedin_url:
+        y -= 10
+        x = left
+        link_only("GitHub", github_url)
+        link_only("LinkedIn", linkedin_url)
+
+    y -= 8
+    _hr(c, left, right, y)
+    y -= 14
+
+    # Optional date line
+    if date_str:
+        c.setFont("Helvetica", 10)
+        c.drawString(left, y, _safe(date_str))
+        y -= 14
+
+    # Body (supports paragraphs separated by blank lines)
+    body = (letter_text or "").strip()
+    if body:
+        for para in body.split("\n\n"):
+            para = para.strip()
+            if not para:
+                continue
+            y = _draw_wrapped(c, left, y, para, max_chars=105, line_h=12, font="Helvetica", size=10)
+            y -= 10
+
+    c.save()
