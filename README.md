@@ -1,4 +1,4 @@
-﻿# Job Application Toolkit
+# Job Application Toolkit
 
 An AI-powered job application platform built to make CV tailoring, job tracking, and document generation faster, cleaner, and more organized.
 
@@ -53,24 +53,24 @@ It is built for people who want a more efficient and systematic way to prepare s
 ## Key Screens
 
 ### Home Page
-![Home Page](assets/images/home-page.png)
+![Home Page](jobtracker/assets/images/home-page.png)
 
 ### Add Job Flow
-![Add Job Flow](assets/images/add-job-page.png)
+![Add Job Flow](jobtracker/assets/images/add-job-page.png)
 
 ### Dashboard
-![Dashboard](assets/images/dashboard-page.png)
+![Dashboard](jobtracker/assets/images/dashboard-page.png)
 
 ### Baseline CV Builder
-![Baseline CV Builder](assets/images/baseline-cv-page.png)
+![Baseline CV Builder](jobtracker/assets/images/baseline-cv-page.png)
 
 ### AI CV Workflow
-![AI CV Workflow](assets/images/ai-page-1.png)
+![AI CV Workflow](jobtracker/assets/images/ai-page-1.png)
 
 ### Profile / User Configuration
-![Profile / User Configuration](assets/images/profile-page.png)
+![Profile / User Configuration](jobtracker/assets/images/profile-page.png)
 
-More screenshots are available in [docs/screenshots.md](docs/screenshots.md).
+More screenshots are available in [jobtracker/docs/screenshots.md](jobtracker/docs/screenshots.md).
 
 ## Use Case
 
