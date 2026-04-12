@@ -1,3 +1,4 @@
+
 ﻿import streamlit as st
 import pandas as pd
 from datetime import date
@@ -5,6 +6,8 @@ from lib.db import get_conn, init_db, fetch_jobs
 
 st.set_page_config(page_title="Follow-ups", layout="wide")
 
+inject_global_css()
+sidebar_brand()
 conn = get_conn()
 init_db(conn)
 df = fetch_jobs(conn)

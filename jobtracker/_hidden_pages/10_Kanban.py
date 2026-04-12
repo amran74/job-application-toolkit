@@ -1,9 +1,12 @@
+
 ﻿import streamlit as st
 import pandas as pd
 from lib.db import get_conn, init_db, fetch_jobs, STATUS_ORDER, update_status
 
 st.set_page_config(page_title="Kanban", layout="wide")
 
+inject_global_css()
+sidebar_brand()
 conn = get_conn()
 init_db(conn)
 df = fetch_jobs(conn)

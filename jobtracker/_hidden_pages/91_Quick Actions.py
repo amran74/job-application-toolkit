@@ -1,9 +1,13 @@
+
 ﻿import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from lib.db import get_conn, init_db, fetch_jobs, get_job, upsert_job, parse_tags
 
 st.set_page_config(page_title="Quick Actions", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("Quick Actions")
 st.caption("Follow-ups, duplicates, and other boring stuff that actually makes the app useful.")
 

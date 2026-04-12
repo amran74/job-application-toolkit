@@ -1,3 +1,4 @@
+
 ﻿import streamlit as st
 import pandas as pd
 import os, shutil
@@ -5,6 +6,9 @@ from datetime import datetime
 from lib.db import DB_PATH, get_conn, init_db, fetch_jobs, upsert_job
 
 st.set_page_config(page_title="Import & Backup", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("Import & Backup")
 st.caption("Because losing your DB is a spiritual experience you don't need.")
 

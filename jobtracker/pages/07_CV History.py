@@ -1,9 +1,14 @@
-﻿import os
+import os
 import json
 import streamlit as st
+
+from lib.ui import *
 from lib.db import get_conn, init_db, fetch_jobs, fetch_cv_versions, read_cv_version
 
 st.set_page_config(page_title="CV History", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("CV History (per job)")
 st.caption("Browse saved CV/cover versions per job and download the PDFs you generated.")
 

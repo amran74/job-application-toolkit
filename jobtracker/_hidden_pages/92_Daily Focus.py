@@ -1,9 +1,13 @@
+
 ﻿import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from lib.db import get_conn, init_db, fetch_jobs
 
 st.set_page_config(page_title="Daily Focus", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("Daily Focus")
 st.caption("Your job hunt, reduced to a to-do list. Humans love avoiding decisions, so here you go.")
 
@@ -67,4 +71,3 @@ st.subheader("3) Today’s simple plan (no excuses)")
 st.write("• Do all follow-ups due (max 15 minutes).")
 st.write("• Apply to 1–3 from stale list (or delete them).")
 st.write("• Add 1 new job if you have none queued.")
-

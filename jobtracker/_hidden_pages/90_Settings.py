@@ -1,9 +1,12 @@
+
 ﻿import streamlit as st
 import sqlite3
 from lib.db import DB_PATH, get_conn, init_db, fetch_jobs, delete_job
 
 st.set_page_config(page_title="Settings", layout="wide")
 
+inject_global_css()
+sidebar_brand()
 st.title("Settings / Backup")
 
 st.subheader("Backup DB")

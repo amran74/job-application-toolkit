@@ -1,20 +1,24 @@
-﻿import os
+import os
 import shutil
 import sqlite3
 from datetime import datetime
 
 import streamlit as st
+
+from lib.ui import *
 import pandas as pd
 
 from lib.db import get_conn, init_db, DB_PATH
 
 st.set_page_config(page_title="CV Library", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("CV Library")
 st.caption("Store past CV PDFs so you can reuse them instead of re-inventing your life every time.")
 
 conn = get_conn()
 init_db(conn)
-
 
 LIB_DIR = os.path.join("jobtracker", "exports", "cv_library")
 os.makedirs(LIB_DIR, exist_ok=True)

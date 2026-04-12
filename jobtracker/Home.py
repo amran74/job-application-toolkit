@@ -1,83 +1,115 @@
-﻿import streamlit as st
+import streamlit as st
+
+from lib.ui import *
 import pandas as pd
 from datetime import date
+
 from lib.db import get_conn, init_db, fetch_jobs
 
-st.set_page_config(page_title="Job Tracker", layout="wide")
-st.title("Job Tracker")
-st.caption("Not a motivational poster. A control panel.")
+st.set_page_config(page_title="Job Application Toolkit", layout="wide")
 
+inject_global_css()
+sidebar_brand()
 conn = get_conn()
 init_db(conn)
 df = fetch_jobs(conn)
 
+page_header(
+    "Job Application Toolkit",
+    "A structured workspace for job tracking, reusable CV content, bilingual AI generation, and versioned application output.",
+    eyebrow="Application workflow system",
+)
+
 if df is None or df.empty:
-    st.info("No jobs yet. Start with Add Job. Then this page becomes useful.")
+    left, right = st.columns([1.15, 0.85], gap="large")
+
+    with left:
+        section_title("Start here")
+        soft_card(
+            "No jobs yet",
+            "Add the first tracked role, save the baseline CV, and build reusable content blocks. The app is meant to operate like a system, not sit here looking theoretical.",
+        )
+        badge_row(["Job tracking", "AI CV generation", "Bilingual output", "Version history"])
+
+    with right:
+        section_title("Core setup")
+        quick_link_card("Add Job", "Create the first tracked opportunity.")
+        st.page_link("pages/02_Add Job.py", label="Open Add Job")
+
+        quick_link_card("Baseline CV", "Store the source material used for AI tailoring.")
+        st.page_link("pages/08_Baseline CV.py", label="Open Baseline CV")
+
+        quick_link_card("Profile Settings", "Set name, email, links, and headline once.")
+        st.page_link("pages/09_Profile Settings.py", label="Open Profile Settings")
+
+        quick_link_card("Content Blocks", "Save reusable projects, experience, skills, and education.")
+        st.page_link("pages/05_CV Content Blocks.py", label="Open Content Blocks")
+
     st.stop()
 
 today = pd.to_datetime(date.today())
-
-# normalize dates
 df2 = df.copy()
-for col in ["next_followup", "created_at", "date_interested", "date_applied", "date_outcome", "last_update"]:
+
+for col in ["next_followup", "created_at"]:
     if col in df2.columns:
         df2[col] = pd.to_datetime(df2[col], errors="coerce")
 
-# KPIs
 total = len(df2)
-applied = int(df2["status"].isin(["Applied","Interview","Offer","Rejected","Ghosted"]).sum())
+applied_plus = int(df2["status"].isin(["Applied", "Interview", "Offer", "Rejected", "Ghosted"]).sum())
 interviews = int(df2["status"].eq("Interview").sum())
 offers = int(df2["status"].eq("Offer").sum())
-ghosted = int(df2["status"].eq("Ghosted").sum())
-interview_rate = (interviews / applied * 100) if applied else 0
+interview_rate = (interviews / applied_plus * 100) if applied_plus else 0
 
 fu_due = df2[df2["next_followup"].notna() & (df2["next_followup"] <= today)].copy()
-stale = df2[(df2["status"] == "Interested") & df2["created_at"].notna() & (df2["created_at"] <= (today - pd.to_timedelta(7, unit="D")))].copy()
+stale = df2[
+    (df2["status"] == "Interested")
+    & df2["created_at"].notna()
+    & (df2["created_at"] <= (today - pd.to_timedelta(7, unit="D")))
+].copy()
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Total jobs", total)
-c2.metric("Applied+", applied)
-c3.metric("Interviews", interviews)
-c4.metric("Offers", offers)
-c5.metric("Interview rate", f"{interview_rate:.1f}%")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Tracked jobs", total)
+m2.metric("Applied+", applied_plus)
+m3.metric("Interviews", interviews)
+m4.metric("Interview rate", f"{interview_rate:.1f}%")
 
-st.divider()
-
-left, right = st.columns([1.1, 0.9])
+left, right = st.columns([1.2, 0.8], gap="large")
 
 with left:
-    st.subheader("Today")
+    section_title("Operational focus")
+    soft_card(
+        "What deserves attention",
+        "Handle overdue follow-ups first, clear stale interest second, and generate tailored CV output only after the workflow data is honest.",
+    )
+
+    section_title("Due follow-ups")
+    st.markdown('<div class="table-caption">Applications that already need action.</div>', unsafe_allow_html=True)
     if fu_due.empty:
         st.success("No follow-ups due today.")
     else:
-        st.warning(f"{len(fu_due)} follow-up(s) due. Do them first, then pretend you’re busy.")
-        show = fu_due.sort_values("next_followup")[["id","company","role","status","next_followup"]].copy()
+        show = fu_due.sort_values("next_followup")[["id", "company", "role", "status", "next_followup"]].copy()
         show["next_followup"] = show["next_followup"].dt.date.astype(str)
         st.dataframe(show, use_container_width=True, hide_index=True)
 
-    st.subheader("Stale 'Interested' (older than 7 days)")
+    section_title("Stale interested jobs")
+    st.markdown('<div class="table-caption">Old interest with no movement is usually hesitation, noise, or both.</div>', unsafe_allow_html=True)
     if stale.empty:
-        st.success("None stale. Nice.")
+        st.success("No stale interested jobs.")
     else:
-        st.info("These are sitting in limbo. Apply or delete. Limbo is cowardice.")
-        show2 = stale.sort_values("created_at")[["id","company","role","created_at"]].copy()
+        show2 = stale.sort_values("created_at")[["id", "company", "role", "created_at"]].copy()
         show2["created_at"] = show2["created_at"].dt.date.astype(str)
         st.dataframe(show2, use_container_width=True, hide_index=True)
 
 with right:
-    st.subheader("Quick actions")
-    st.page_link("pages/2_Add_Job.py", label="Add a Job", icon="➕")
-    st.page_link("pages/1_Dashboard.py", label="Dashboard", icon="📊")
-    st.page_link("pages/11_Quick_Actions.py", label="Quick Actions (follow-ups)", icon="✅")
-    st.page_link("pages/5_CV.py", label="Manual CV", icon="🧾")
-    st.page_link("pages/7_AI_CV_Generator.py", label="AI CV Generator", icon="🤖")
-    st.page_link("pages/9_Baseline_CV.py", label="Baseline CV", icon="📌")
-    st.page_link("pages/10_Profile_Settings.py", label="Profile Settings", icon="👤")
+    section_title("Core workflow")
+    quick_link_card("AI CV Generator", "Generate tailored English and Hebrew CV output with cover support.")
+    st.page_link("pages/03_AI CV Generator.py", label="Open AI CV Generator")
 
-    st.divider()
-    st.subheader("Status breakdown")
-    counts = df2["status"].value_counts().reset_index()
-    counts.columns = ["status","count"]
-    st.dataframe(counts, use_container_width=True, hide_index=True)
+    quick_link_card("Manual CV Builder", "Assemble a CV from saved blocks, custom sections, or both.")
+    st.page_link("pages/04_Manual CV Builder.py", label="Open Manual CV Builder")
 
-st.caption("If this page looks empty, it's because you haven't fed it data. Add jobs, set follow-ups, paste JDs.")
+    quick_link_card("Content Blocks", "Manage reusable projects, experience, skills, and languages.")
+    st.page_link("pages/05_CV Content Blocks.py", label="Open Content Blocks")
+
+    quick_link_card("AI Content Assistant", "Turn messy text into structured reusable content blocks.")
+    st.page_link("pages/06_AI Content Assistant.py", label="Open AI Content Assistant")

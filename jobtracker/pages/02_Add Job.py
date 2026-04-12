@@ -1,5 +1,7 @@
-﻿import re
+import re
 import streamlit as st
+
+from lib.ui import *
 import pandas as pd
 from datetime import date, timedelta
 
@@ -9,6 +11,9 @@ from lib.db import (
 )
 
 st.set_page_config(page_title="Add Job", layout="wide")
+
+inject_global_css()
+sidebar_brand()
 st.title("Add Job (smart)")
 st.caption("Paste link + JD. It fills the obvious stuff so you can move on with your life.")
 
